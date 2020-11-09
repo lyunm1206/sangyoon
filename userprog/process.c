@@ -30,6 +30,8 @@ process_execute (const char *file_name)
 {
   char *fn_copy;
   tid_t tid;
+  char *name;
+  char* save_ptr
 
   /* Make a copy of FILE_NAME.
      Otherwise there's a race between the caller and load(). */
@@ -37,9 +39,10 @@ process_execute (const char *file_name)
   if (fn_copy == NULL)
     return TID_ERROR;
   strlcpy (fn_copy, file_name, PGSIZE);
+  name = strtok_r(fn_copy, " ", save_ptr);
 
   /* Create a new thread to execute FILE_NAME. */
-  tid = thread_create (file_name, PRI_DEFAULT, start_process, fn_copy);
+  tid = thread_create (name, PRI_DEFAULT, start_process, fn_copy);
   if (tid == TID_ERROR)
     palloc_free_page (fn_copy); 
   return tid;
@@ -214,6 +217,11 @@ load (const char *file_name, void (**eip) (void), void **esp)
   off_t file_ofs;
   bool success = false;
   int i;
+  char *token;
+  char *save_ptr;
+  int argc = 0;
+  char **argument[30];
+  char **argv[30];
 
   /* Allocate and activate page directory. */
   t->pagedir = pagedir_create ();
@@ -222,10 +230,17 @@ load (const char *file_name, void (**eip) (void), void **esp)
   process_activate ();
 
   /* Open executable file. */
-  file = filesys_open (file_name);
+  token = strtok_r(file_name, " ", save_ptr);
+  while(token != NULL)
+  {
+	  argument[argc++] = token;
+	  token = strtok_r(file_name, " ", save_ptr);
+  }
+
+  file = filesys_open (argument[0]);
   if (file == NULL) 
     {
-      printf ("load: %s: open failed\n", file_name);
+      printf ("load: %s: open failed\n", argv[0]);
       goto done; 
     }
 
@@ -238,7 +253,7 @@ load (const char *file_name, void (**eip) (void), void **esp)
       || ehdr.e_phentsize != sizeof (struct Elf32_Phdr)
       || ehdr.e_phnum > 1024) 
     {
-      printf ("load: %s: error loading executable\n", file_name);
+      prina  tf ("load: %s: error loading executable\n", file_name);
       goto done; 
     }
 
@@ -304,6 +319,15 @@ load (const char *file_name, void (**eip) (void), void **esp)
   /* Set up stack. */
   if (!setup_stack (esp))
     goto done;
+
+  for(i = argc - 1; i >= 0; i--)
+  {
+	  int length = strlen(argument[i]) + 1;
+	  *esp = *esp - length;
+	  memcpy(*esp, argument[i], length);
+	  argv[i] = *esp;
+  }
+  argv[argc] = 0;
 
   /* Start address. */
   *eip = (void (*) (void)) ehdr.e_entry;
@@ -374,7 +398,7 @@ validate_segment (const struct Elf32_Phdr *phdr, struct file *file)
 
         - ZERO_BYTES bytes at UPAGE + READ_BYTES must be zeroed.
 
-   The pages initialized by this function must be writable by the
+   The pages    initialized by this function must be writable by the
    user process if WRITABLE is true, read-only otherwise.
 
    Return true if successful, false if a memory allocation error
@@ -436,7 +460,7 @@ setup_stack (void **esp)
   if (kpage != NULL) 
     {
       success = install_page (((uint8_t *) PHYS_BASE) - PGSIZE, kpage, true);
-      if (success)
+      if (success) 
         *esp = PHYS_BASE;
       else
         palloc_free_page (kpage);
