@@ -222,6 +222,7 @@ load (const char *file_name, void (**eip) (void), void **esp)
   int argc = 0;
   char **argument[30];
   char **argv[30];
+  int align;
 
   /* Allocate and activate page directory. */
   t->pagedir = pagedir_create ();
@@ -320,6 +321,7 @@ load (const char *file_name, void (**eip) (void), void **esp)
   if (!setup_stack (esp))
     goto done;
 
+  argv[argc] = 0;
   for(i = argc - 1; i >= 0; i--)
   {
 	  int length = strlen(argument[i]) + 1;
@@ -327,7 +329,23 @@ load (const char *file_name, void (**eip) (void), void **esp)
 	  memcpy(*esp, argument[i], length);
 	  argv[i] = *esp;
   }
-  argv[argc] = 0;
+  
+  align = (int) *esp % 4;
+  *esp -= align;
+
+  *esp -= 4;
+  memset(*esp, 0, 4);
+  for(i = argc-1; i >= 0; i--)
+  {
+	  *esp -= 4;
+	  memcpy(*esp, &argv[i], 4);
+  }
+  *esp -= 4;
+  memcpy(*esp, (*esp)+4, 4);
+  *esp -= 4;
+  memcpy(*esp, &argc, 4);
+  *esp -= 4;
+  memset(*esp, 0, 4);
 
   /* Start address. */
   *eip = (void (*) (void)) ehdr.e_entry;
